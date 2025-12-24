@@ -7,7 +7,7 @@ StandCommandSystem.__index = StandCommandSystem
 
 -- Version and Constants
 StandCommandSystem.VERSION = "6.0"
-StandCommandSystem.AUTHOR = "Stand Development Team"
+StandCommandSystem.AUTHOR = "Mahdirml123i"
 StandCommandSystem.CONSTANTS = {
     18939, 4265169242, 1570501719, 2731978471, 744817609,
     3944911081, 1191254327, 197035333, 935409779

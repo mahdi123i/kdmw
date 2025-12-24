@@ -1,17 +1,6 @@
 --[[
 	ROBLOX STAND COMMAND SYSTEM v6.0 FINAL
 	Professional Exploit Loader | Da Hood Compatible
-	
-	CORE FEATURES:
-	✔ Force-enabled chat system (LegacyChat + TextChatService)
-	✔ Auto-run boot sequence (reset → teleport → crew → summon)
-	✔ Owner-only control with smooth stand follow
-	✔ gkill! dominant state execution
-	✔ Auto-reload on death
-	✔ Da Hood safe design
-	✔ Silent operation
-	
-	Usage: loadstring(game:HttpGet("RAW_URL"))()
 ]]
 
 local Players = game:GetService("Players")
@@ -20,7 +9,6 @@ local TeleportService = game:GetService("TeleportService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
 local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
 
 -- ============================================================================
 -- CONFIGURATION LOADER
@@ -39,42 +27,6 @@ Config.CustomPrefix = (getgenv()._C and getgenv()._C.CustomPrefix) or "."
 
 local ChatSystem = {}
 ChatSystem.enabled = false
-ChatSystem.legacyChatEnabled = false
-
-function ChatSystem:forceLegacyChat()
-	if self.legacyChatEnabled then
-		return
-	end
-	
-	self.legacyChatEnabled = true
-	
-	-- Disable TextChatService, enable LegacyChat
-	pcall(function()
-		if TextChatService then
-			TextChatService.ChatVersion = Enum.ChatVersion.LegacyChat
-		end
-	end)
-	
-	-- Force show chat CoreGui
-	pcall(function()
-		local chatGui = CoreGui:FindFirstChild("Chat")
-		if chatGui then
-			chatGui.Enabled = true
-			chatGui.ResetOnSpawn = false
-		end
-	end)
-	
-	-- Create chat if missing
-	pcall(function()
-		local chatGui = CoreGui:FindFirstChild("Chat")
-		if not chatGui then
-			local newChat = Instance.new("ScreenGui")
-			newChat.Name = "Chat"
-			newChat.ResetOnSpawn = false
-			newChat.Parent = CoreGui
-		end
-	end)
-end
 
 function ChatSystem:setupListeners()
 	if self.enabled then
@@ -82,7 +34,6 @@ function ChatSystem:setupListeners()
 	end
 	
 	self.enabled = true
-	self:forceLegacyChat()
 	
 	local player = Players.LocalPlayer
 	if not player then return end
@@ -237,6 +188,76 @@ end
 
 function StateManager:isState(state)
 	return self.currentState == state
+end
+
+-- ============================================================================
+-- STAND MODEL SYSTEM
+-- ============================================================================
+
+local StandModel = {}
+StandModel.stand = nil
+StandModel.standHumanoidRootPart = nil
+StandModel.floatOffset = 0
+StandModel.floatSpeed = 0.05
+StandModel.floatAmplitude = 0.5
+
+function StandModel:create()
+	if self.stand then
+		return self.stand
+	end
+	
+	local player = Players.LocalPlayer
+	if not player or not player.Character then
+		return nil
+	end
+	
+	local stand = player.Character:Clone()
+	stand.Name = "Stand"
+	stand.Parent = workspace
+	
+	local humanoid = stand:FindFirstChild("Humanoid")
+	if humanoid then
+		humanoid:Destroy()
+	end
+	
+	for _, part in ipairs(stand:GetDescendants()) do
+		if part:IsA("BasePart") then
+			part.Transparency = 0.2
+			part.CanCollide = false
+		end
+	end
+	
+	self.stand = stand
+	self.standHumanoidRootPart = stand:FindFirstChild("HumanoidRootPart")
+	self.floatOffset = 0
+	
+	return stand
+end
+
+function StandModel:destroy()
+	if self.stand then
+		self.stand:Destroy()
+		self.stand = nil
+		self.standHumanoidRootPart = nil
+	end
+end
+
+function StandModel:getPosition()
+	if self.standHumanoidRootPart then
+		return self.standHumanoidRootPart.Position
+	end
+	return nil
+end
+
+function StandModel:setPosition(cframe)
+	if self.standHumanoidRootPart then
+		self.standHumanoidRootPart.CFrame = cframe
+	end
+end
+
+function StandModel:updateFloatAnimation()
+	self.floatOffset = self.floatOffset + self.floatSpeed
+	return math.sin(self.floatOffset) * self.floatAmplitude
 end
 
 -- ============================================================================
@@ -675,6 +696,7 @@ function OwnerSystem:autoInit()
 		StateManager.standActive = true
 		StateManager.attackEnabled = true
 		MovementEngine:stop()
+		StandModel:create()
 	end)
 end
 
@@ -771,6 +793,10 @@ function StandHoverEngine:executeHover()
 		return
 	end
 	
+	if not StandModel.standHumanoidRootPart then
+		return
+	end
+	
 	local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
 	if not humanoidRootPart then
 		return
@@ -781,18 +807,19 @@ function StandHoverEngine:executeHover()
 	
 	local backVector = -ownerCFrame.LookVector * self.hoverDistance
 	local sideVector = ownerCFrame.RightVector * self.hoverOffsetX
-	local upVector = Vector3.new(0, self.hoverHeight, 0)
+	local floatAnimation = StandModel:updateFloatAnimation()
+	local upVector = Vector3.new(0, self.hoverHeight + floatAnimation, 0)
 	
 	local targetHoverPos = ownerPos + backVector + sideVector + upVector
 	
-	local currentPos = humanoidRootPart.Position
+	local currentPos = StandModel.standHumanoidRootPart.Position
 	local smoothPos = currentPos:Lerp(targetHoverPos, self.lerpSpeed)
 	
 	local groundY = math.max(smoothPos.Y, ownerPos.Y - 1.5)
 	smoothPos = Vector3.new(smoothPos.X, groundY, smoothPos.Z)
 	
 	local newCFrame = CFrame.new(smoothPos, ownerPos)
-	humanoidRootPart.CFrame = newCFrame
+	StandModel:setPosition(newCFrame)
 end
 
 function StandHoverEngine:stop()
@@ -1096,74 +1123,128 @@ end)
 
 CommandDispatcher:register("s", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("/e q", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("/e q1", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("/e q2", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("/e q3", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("summon!", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("summon1!", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("summon2!", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("summon3!", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("killer queen", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("star platinum", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("star platinum: the world", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("star platinum over heaven", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("za warudo", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("c-moon", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("d4c", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("king crimson", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("made in heaven", function(args)
 	StateManager.standActive = true
+	if not StandModel.stand then
+		StandModel:create()
+	end
 end)
 
 CommandDispatcher:register("vanish!", function(args)
@@ -1173,6 +1254,7 @@ CommandDispatcher:register("vanish!", function(args)
 	end
 	MovementEngine:stop()
 	StateManager:setState(StateManager.states.IDLE)
+	StandModel:destroy()
 end)
 
 CommandDispatcher:register("desummon!", function(args)
@@ -1182,6 +1264,7 @@ CommandDispatcher:register("desummon!", function(args)
 	end
 	MovementEngine:stop()
 	StateManager:setState(StateManager.states.IDLE)
+	StandModel:destroy()
 end)
 
 CommandDispatcher:register("/e w", function(args)
@@ -1191,6 +1274,7 @@ CommandDispatcher:register("/e w", function(args)
 	end
 	MovementEngine:stop()
 	StateManager:setState(StateManager.states.IDLE)
+	StandModel:destroy()
 end)
 
 CommandDispatcher:register("ora!", function(args) end)
@@ -1321,6 +1405,7 @@ local function init()
 	_G.ResolveTarget = ResolveTarget
 	_G.StandHoverEngine = StandHoverEngine
 	_G.ChatSystem = ChatSystem
+	_G.StandModel = StandModel
 end
 
 init()
@@ -1337,5 +1422,6 @@ return {
 	AutoReloadSystem = AutoReloadSystem,
 	ResolveTarget = ResolveTarget,
 	StandHoverEngine = StandHoverEngine,
-	ChatSystem = ChatSystem
+	ChatSystem = ChatSystem,
+	StandModel = StandModel
 }
